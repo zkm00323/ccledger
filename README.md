@@ -62,13 +62,23 @@ transcripts above that is 13 records out of 60,941.
 
 ## Install
 
+Grab the file:
+
 ```
 curl -O https://raw.githubusercontent.com/zkm00323/ccledger/main/ccledger.py
 python ccledger.py --help
 ```
 
-One file, standard library only, Python 3.9+. Drop it on your PATH as `ccledger`
-if you want, or vendor it into a repo. There is deliberately nothing to install.
+Or install it as a command:
+
+```
+pip install git+https://github.com/zkm00323/ccledger.git
+ccledger --help
+```
+
+One file, standard library only, Python 3.9+. No runtime dependencies either way -
+the package exists only to put `ccledger` on your PATH. Vendoring the single file
+into a repo is a perfectly good option too.
 
 ## Use
 

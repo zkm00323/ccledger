@@ -1,0 +1,48 @@
+name: publish
+
+# Publishes to PyPI with Trusted Publishing (OIDC). There is no API token
+# anywhere in this repo, in Actions secrets, or in any commit - PyPI verifies
+# the workflow's short-lived identity instead.
+#
+# One-time setup on PyPI (https://pypi.org/manage/account/publishing/):
+#   PyPI Project Name : ccledger
+#   Owner             : zkm00323
+#   Repository name   : ccledger
+#   Workflow name     : publish.yml
+#   Environment name  : (leave blank)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run tests before shipping anything
+        run: python test_ccledger.py
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
