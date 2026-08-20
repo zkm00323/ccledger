@@ -242,5 +242,63 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(ccledger.main(["--root", os.path.join(self.root, "nope")]), 2)
 
 
+class SubagentAttribution(unittest.TestCase):
+    def parse(self, **over):
+        return ccledger.parse_entry(entry(**over), "/root/a.jsonl", "/root")
+
+    def test_main_loop_records_are_named_main(self):
+        self.assertEqual(self.parse().subagent, "main")
+
+    def test_attribution_agent_names_the_subagent_type(self):
+        rec = self.parse(isSidechain=True, attributionAgent="Explore")
+        self.assertEqual(rec.subagent, "Explore")
+        self.assertEqual(rec.agent, "subagent")
+
+    def test_attribution_agent_is_trimmed(self):
+        self.assertEqual(self.parse(isSidechain=True,
+                                    attributionAgent="  cash-scout \n").subagent,
+                         "cash-scout")
+
+    def test_falls_back_to_agent_id_when_type_is_absent(self):
+        rec = self.parse(isSidechain=True, agentId="a5650b4cb05c62f0b")
+        self.assertEqual(rec.subagent, "agent:a5650b4cb05c62f0b")
+
+    def test_falls_back_again_when_nothing_identifies_the_subagent(self):
+        self.assertEqual(self.parse(isSidechain=True).subagent, "subagent")
+
+    def test_blank_attribution_agent_does_not_win_over_agent_id(self):
+        rec = self.parse(isSidechain=True, attributionAgent="   ", agentId="x1")
+        self.assertEqual(rec.subagent, "agent:x1")
+
+    def test_main_loop_is_never_labelled_by_a_stray_attribution(self):
+        # A non-sidechain line carrying attributionAgent is still main-loop work.
+        self.assertEqual(self.parse(attributionAgent="Explore").subagent, "main")
+
+    def records(self):
+        return [
+            self.parse(isSidechain=True, attributionAgent="Explore"),
+            self.parse(isSidechain=True, attributionAgent="zip-lander",
+                       message=dict(entry()["message"], id="m2")),
+            self.parse(message=dict(entry()["message"], id="m3")),
+        ]
+
+    def test_subagent_filter_matches_case_insensitive_substring(self):
+        got = list(ccledger.filter_records(self.records(), subagent="ZIP"))
+        self.assertEqual([r.subagent for r in got], ["zip-lander"])
+
+    def test_subagent_filter_can_isolate_the_main_loop(self):
+        got = list(ccledger.filter_records(self.records(), subagent="main"))
+        self.assertEqual([r.subagent for r in got], ["main"])
+
+    def test_grouping_by_subagent_gives_one_row_per_agent_type(self):
+        rows, headers, total, _ = ccledger.build_report(self.records(), "subagent")
+        self.assertEqual({r[0] for r in rows}, {"Explore", "zip-lander", "main"})
+        self.assertEqual(headers[0], "subagent")
+        self.assertEqual(total[1], "3")
+
+    def test_subagent_is_an_accepted_by_choice(self):
+        self.assertIn("subagent", ccledger.GROUP_KEYS)
+
+
 if __name__ == "__main__":
     unittest.main()

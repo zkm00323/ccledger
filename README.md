@@ -24,6 +24,42 @@ loop wrote to the 1-hour cache, subagents to the 5-minute one. Those tiers are n
 billed the same, so collapsing them into one "cache" number quietly misprices the
 larger half of your usage.
 
+## Which subagent ate the budget
+
+`--by agent` tells you subagents cost you a quarter of everything. That is the
+point at which the next question is obvious and nothing else will answer it:
+**which ones?**
+
+```
+$ ccledger --by subagent
+
+subagent                          calls      input      output  cache_write_5m  cache_write_1h      cache_read           total
+-------------------------------  ------  ---------  ----------  --------------  --------------  --------------  --------------
+main                             32,472    211,562  29,637,263               0     206,975,738  12,001,652,449  12,238,477,012
+general-purpose                  13,525    494,361   2,795,839      58,299,818               0   2,314,961,448   2,376,551,466
+zip-lander                       12,124    306,494   2,798,941      51,920,912               0   1,762,309,675   1,817,336,022
+spec-planner                      1,481    124,412     332,446      13,874,348               0      54,037,095      68,368,301
+ui-scan                           1,343     45,457     144,309       4,924,969               0      26,922,687      32,037,422
+workflow-subagent                   357     37,746       4,332       1,470,691               0      26,918,387      28,431,156
+Explore                             311     34,195      59,230       2,072,668               0      24,576,680      26,742,773
+code-simplifier:code-simplifier      19     44,284          64         187,173               0       2,250,218       2,481,739
+cash-scout                          115     25,243         173         241,795               0       1,895,320       2,162,531
+cash-checker                         73     18,171         139         174,076               0       1,071,966       1,264,352
+claude-code-guide                    11        569         743          71,203               0         307,149         379,664
+domain-gatekeeper                    12         24         209         175,063               0         172,905         348,201
+TOTAL                            61,843  1,342,518  35,773,688     133,412,716     206,975,738  16,217,075,979  16,594,580,639
+```
+
+Two agent types are **97% of all subagent consumption** on this machine. Knowing
+that is the difference between "subagents are expensive" and a decision about which
+one to stop calling. `--subagent SUBSTR` narrows to one, and combines with
+`--by day` or `--by project` to ask when and where it ran.
+
+Sidechain records carry an `attributionAgent` field naming the agent *type*, so
+rows are per agent type rather than per invocation — two `Explore` calls land in
+the same row. Records written without it fall back to `agent:<agentId>`; on the
+transcripts above that is 13 records out of 60,941.
+
 ## Install
 
 ```
@@ -42,15 +78,18 @@ ccledger --by day --since 2026-08-01  # daily burn for this month
 ccledger --by model                   # what is Opus actually costing you
 ccledger --by branch --project myapp  # which branch ate the budget
 ccledger --by agent                   # main loop vs subagents
+ccledger --by subagent                # which subagent type, individually
+ccledger --by day --subagent explore  # when did Explore run, and how much
 ccledger --by session --since 2026-08-19 --csv > sessions.csv
 ```
 
 | flag | effect |
 |---|---|
-| `--by` | `project` (default), `model`, `day`, `branch`, `session`, `agent` |
+| `--by` | `project` (default), `model`, `day`, `branch`, `session`, `agent`, `subagent` |
 | `--since` / `--until` | inclusive `YYYY-MM-DD` bounds |
 | `--project SUBSTR` | case-insensitive substring match on project name |
 | `--agent main\|subagent` | restrict to one or the other |
+| `--subagent SUBSTR` | case-insensitive substring match on subagent type name |
 | `--prices FILE` | add a `usd` column, priced from your own table |
 | `--json` / `--csv` | machine-readable output |
 | `--root DIR` | transcript root, if yours is not `~/.claude/projects` |
@@ -84,8 +123,13 @@ stderr** rather than silently counted as free.
 
 ## What it gets right that a quick script won't
 
-- **Subagent work is attributed.** `isSidechain` records are counted and can be
-  isolated with `--agent`.
+- **Subagent work is attributed, per agent type.** `isSidechain` records are
+  counted, isolated with `--agent`, and broken out individually with
+  `--by subagent`. This is the part people keep asking Anthropic for
+  ([#22625](https://github.com/anthropics/claude-code/issues/22625),
+  [#10164](https://github.com/anthropics/claude-code/issues/10164)) and the reason
+  a session can quietly run up a bill nobody can account for
+  ([#65292](https://github.com/anthropics/claude-code/issues/65292)).
 - **Cache tiers stay apart.** 5-minute and 1-hour writes are separate columns.
   When a transcript only reports a flat `cache_creation_input_tokens`, it is
   attributed to the 5-minute bucket, which is the default TTL.
@@ -101,7 +145,7 @@ stderr** rather than silently counted as free.
 python test_ccledger.py
 ```
 
-30 tests, standard library `unittest`, no fixtures to download.
+41 tests, standard library `unittest`, no fixtures to download.
 
 ## Disclosure
 

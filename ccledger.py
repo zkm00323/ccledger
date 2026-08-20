@@ -3,7 +3,7 @@
 
 Reads the JSONL session transcripts Claude Code already writes under
 ``~/.claude/projects`` and aggregates real token usage by project, model, day,
-git branch, session, or main-agent-vs-subagent.
+git branch, session, main-agent-vs-subagent, or **individual subagent**.
 
 Design notes that matter:
 
@@ -11,9 +11,11 @@ Design notes that matter:
   exact. Dollar figures are *not* built in, because baking a price table into a
   tool guarantees it is wrong the week after a price change. Supply your own with
   ``--prices`` and costs get added as extra columns.
-* **Subagents are counted.** Records with ``isSidechain: true`` are work done by
-  subagents/Task calls. Top-level usage reporting misses them entirely, and on
-  agent-heavy sessions they are routinely the majority of consumption.
+* **Subagents are counted, and named.** Records with ``isSidechain: true`` are work
+  done by subagents/Task calls. Top-level usage reporting misses them entirely, and
+  on agent-heavy sessions they are routinely the majority of consumption.
+  ``--by subagent`` goes one level further and splits that half apart *per agent
+  type*, so "which of my agents is eating the budget" is a question with an answer.
 * **Cache tiers are kept apart.** 5-minute and 1-hour cache writes are billed
   differently and are reported as separate columns rather than merged.
 
@@ -31,29 +33,33 @@ import os
 import sys
 from collections import defaultdict
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 DEFAULT_ROOT = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 
 # Token buckets, in report column order.
 BUCKETS = ("input", "output", "cache_write_5m", "cache_write_1h", "cache_read")
 
-GROUP_KEYS = ("project", "model", "day", "branch", "session", "agent")
+GROUP_KEYS = ("project", "model", "day", "branch", "session", "agent", "subagent")
+
+MAIN = "main"
 
 
 class Record:
     """One billable API response pulled out of a transcript."""
 
     __slots__ = ("project", "model", "day", "branch", "session", "agent",
-                 "tokens", "key")
+                 "subagent", "tokens", "key")
 
-    def __init__(self, project, model, day, branch, session, agent, tokens, key):
+    def __init__(self, project, model, day, branch, session, agent, subagent,
+                 tokens, key):
         self.project = project
         self.model = model
         self.day = day
         self.branch = branch
         self.session = session
         self.agent = agent
+        self.subagent = subagent
         self.tokens = tokens
         self.key = key
 
@@ -106,6 +112,26 @@ def _extract_tokens(usage):
     return tokens
 
 
+def _subagent_name(entry):
+    """Which subagent produced this record — or 'main' for the main loop.
+
+    Sidechain records carry ``attributionAgent``, the *type* of the subagent
+    ('Explore', 'general-purpose', a custom one from .claude/agents/). That is the
+    label worth grouping on: two invocations of the same agent type belong in the
+    same row. ``agentId`` is unique per invocation and is only a fallback for the
+    handful of records written before the type was known.
+    """
+    if not entry.get("isSidechain"):
+        return MAIN
+    name = entry.get("attributionAgent")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    agent_id = entry.get("agentId")
+    if isinstance(agent_id, str) and agent_id.strip():
+        return "agent:" + agent_id.strip()
+    return "subagent"
+
+
 def parse_entry(entry, path, root):
     """Turn one decoded JSONL line into a Record, or None if it is not billable."""
     message = entry.get("message")
@@ -134,7 +160,8 @@ def parse_entry(entry, path, root):
         day=_iso_day(entry.get("timestamp")),
         branch=entry.get("gitBranch") or "",
         session=entry.get("sessionId") or "",
-        agent="subagent" if entry.get("isSidechain") else "main",
+        agent="subagent" if entry.get("isSidechain") else MAIN,
+        subagent=_subagent_name(entry),
         tokens=tokens,
         key=key,
     )
@@ -166,7 +193,8 @@ def load_records(root, on_error=None):
                     yield record
 
 
-def filter_records(records, since=None, until=None, project=None, agent=None):
+def filter_records(records, since=None, until=None, project=None, agent=None,
+                   subagent=None):
     seen = set()
     for record in records:
         if record.key is not None:
@@ -180,6 +208,8 @@ def filter_records(records, since=None, until=None, project=None, agent=None):
         if project and project.lower() not in record.project.lower():
             continue
         if agent and record.agent != agent:
+            continue
+        if subagent and subagent.lower() not in record.subagent.lower():
             continue
         yield record
 
@@ -334,6 +364,9 @@ def main(argv=None):
                         help="only projects whose name contains SUBSTR")
     parser.add_argument("--agent", choices=("main", "subagent"),
                         help="restrict to main-agent or subagent work")
+    parser.add_argument("--subagent", metavar="SUBSTR",
+                        help="only subagents whose name contains SUBSTR "
+                             "(e.g. --subagent explore)")
     parser.add_argument("--prices", metavar="FILE",
                         help="JSON price table; adds a usd column (see prices.example.json)")
     parser.add_argument("--json", action="store_true", dest="as_json",
@@ -356,7 +389,8 @@ def main(argv=None):
             return 2
 
     records = filter_records(load_records(args.root), since=args.since,
-                             until=args.until, project=args.project, agent=args.agent)
+                             until=args.until, project=args.project, agent=args.agent,
+                             subagent=args.subagent)
     rows, headers, total_row, unpriced = build_report(records, args.by, table)
 
     if not rows:
