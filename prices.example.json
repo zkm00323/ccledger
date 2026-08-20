@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "Per-million-token prices, in USD. Fill in 'input' and 'output' for the models",
+    "you use from the current official pricing page - they are deliberately left at",
+    "0.00 here so that a stale number in this repo can never masquerade as a real one.",
+    "",
+    "Cache tiers are optional. When omitted they are derived from 'input' using the",
+    "published ratios: 5m write 1.25x, 1h write 2x, read 0.1x. Set them explicitly",
+    "if you would rather not rely on the ratio.",
+    "",
+    "Keys match by longest prefix, so 'claude-opus-4-5' prices",
+    "'claude-opus-4-5-20260101' as well."
+  ],
+  "claude-opus-4-5": {
+    "input": 0.00,
+    "output": 0.00
+  },
+  "claude-sonnet-4-5": {
+    "input": 0.00,
+    "output": 0.00
+  },
+  "claude-haiku-4-5": {
+    "input": 0.00,
+    "output": 0.00,
+    "cache_read": 0.00
+  }
+}
