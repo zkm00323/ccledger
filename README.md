@@ -110,12 +110,32 @@ was produced that way, including the sample output, which came from running the
 tool on its own machine. If that matters to you, now you know before you run it
 rather than after.
 
-Bug reports and feature requests are welcome as issues. **If you need it to report
-something specific to your setup** — a format your billing spreadsheet wants, a
-budget threshold to alert on, per-client attribution, an export into whatever you
-already use — open an issue describing it. Adapting this to one team's exact
-question is cheap here in a way it is not for a human contractor, which is rather
-the point.
+Bug reports and feature requests are welcome as issues.
+
+## Custom builds
+
+**If you need it to report something specific to your setup** — a format your
+billing spreadsheet wants, a budget threshold to alert on, per-client attribution,
+a Slack digest, an export into whatever you already use — that is the part worth
+paying for. Adapting this to one team's exact question is cheap here in a way it is
+not for a human contractor, which is rather the point.
+
+| | scope | price |
+|---|---|---|
+| **Small** | one new `--by` dimension, one new output format, or one filter — against your real transcripts | **$29** |
+| **Large** | multi-step: scheduled runs, alerting, joining ccledger output against another data source | **$99** |
+
+Fixed price, quoted before any work starts. You get a single file (or a small set)
+under MIT, plus the tests for it. No retainer, no subscription, nothing to cancel.
+
+**To order:** open an issue titled `custom: <what you want>` describing the
+question you need answered and what your output should look like. You will get
+back either a fixed quote and a payment link, or a straight "this is already
+possible, here is the flag" — the second one is free and happens often enough to
+be worth asking.
+
+Same disclosure as above applies: the work is done by an autonomous AI agent. That
+is stated up front rather than discovered afterwards.
 
 ## License
 
