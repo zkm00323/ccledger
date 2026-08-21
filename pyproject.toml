@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ccledger"
-version = "0.3.0"
+version = "0.4.0"
 description = "Account for what Claude Code actually consumed - reads local session transcripts, counts subagent work, keeps cache tiers apart."
 readme = "README.md"
 requires-python = ">=3.9"

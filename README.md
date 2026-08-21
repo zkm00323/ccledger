@@ -154,6 +154,10 @@ stderr** rather than silently counted as free.
   subagent `output` column moves from **6,391,191 to 25,068,860 tokens**, a factor
   of 3.9. Output tokens are the expensive ones. Any tool that takes the first copy
   of a message id is reporting the smaller number.
+- **Replayed copies that disagree are not silently resolved.** A resumed session
+  rewrites the lines it replays with its own session id, and sometimes its own
+  project and branch. Where the copies disagree, those tokens are reported as
+  `(ambiguous)` rather than assigned to whichever copy sorted first. See below.
 - **It tells you when the transcript cannot answer the question.** See below.
 - **Projects are named by `cwd`,** not by the mangled directory name on disk.
 - **A live session doesn't break the scan.** Half-flushed final lines are skipped.
@@ -182,6 +186,37 @@ That 18.1% is from a real 17-billion-token corpus and lines up with the ~20%
 reported upstream. Thinking tokens appear *only* in the final usage, so
 reasoning-heavy subagents lose the most. Treat the subagent rows as a lower
 bound; the gap moves in one direction only.
+
+## Some usage belongs to two sessions, and ccledger refuses to pick one
+
+Resuming or forking a session replays earlier responses into a new transcript —
+and rewrites them with the resuming session's `sessionId`, `cwd` and `gitBranch`.
+The same billed response is then on disk twice, filed under two different
+sessions, sometimes two different projects.
+
+This is not rare. On a 17.2-billion-token corpus, **71.4% of distinct responses
+appear in more than one transcript**, and two thirds of those duplicate pairs are
+byte-identical in `stop_reason` and `output_tokens` — so any dedup tie-break
+resolves them by filename order. That is fine for the token counts, which agree.
+It is not fine for attribution, which does not:
+
+```
+ccledger --by session
+3,686 of 64,389 requests (1,365,000,757 tokens) appear in more than one
+transcript with a different session, so they are reported as (ambiguous)
+rather than guessed at.
+```
+
+That is **7.9% of all tokens in the corpus** that no per-session report can
+honestly place — and every tool that prints a per-session table is assigning them
+to one side without saying so. `--by project` is milder but real (682 requests,
+228M tokens, 1.3%); `--by branch` smaller again. `--by day` and `--by subagent`
+are always clean, because replayed lines keep their original timestamp and their
+sidechain flag.
+
+If you want a number you can defend, group by day. If you group by session or
+project, read the `(ambiguous)` row before you draw a conclusion from the rest of
+the table.
 
 ## Tests
 

@@ -351,5 +351,51 @@ class UnfinalizedUsage(unittest.TestCase):
         self.assertEqual(ccledger.usage_health(recs), (1, 0))
 
 
+class ReplayAttribution(unittest.TestCase):
+    """A resumed session replays a response and rewrites its ids on the way."""
+
+    def copies(self):
+        """The same response as found in the original file and in a resumed one."""
+        original = ccledger.parse_entry(entry(), "/root/a.jsonl", "/root")
+        replay = ccledger.parse_entry(
+            entry(cwd="/home/u/projects/beta", sessionId="sess-2",
+                  gitBranch="feature"),
+            "/root/b.jsonl", "/root")
+        return original, replay
+
+    def test_disagreeing_fields_are_flagged_on_the_survivor(self):
+        got = list(ccledger.dedupe(list(self.copies())))
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0].ambiguous, frozenset({"project", "session", "branch"}))
+
+    def test_day_survives_replay_because_the_timestamp_does(self):
+        got = list(ccledger.dedupe(list(self.copies())))
+        self.assertNotIn("day", got[0].ambiguous)
+        self.assertEqual(ccledger.group_value(got[0], "day"), "2026-08-20")
+
+    def test_ambiguous_usage_gets_its_own_row_instead_of_a_guess(self):
+        records = list(ccledger.dedupe(list(self.copies())))
+        rows, headers, total, _ = ccledger.build_report(records, "project")
+        self.assertEqual([r[0] for r in rows], [ccledger.AMBIGUOUS])
+
+    def test_tokens_are_neither_lost_nor_doubled_by_the_ambiguous_row(self):
+        records = list(ccledger.dedupe(list(self.copies())))
+        _, headers, total, _ = ccledger.build_report(records, "project")
+        # one response, counted once: 10 + 20 + 20 + 30 + 100
+        self.assertEqual(total[headers.index("total")], "180")
+
+    def test_agreeing_copies_keep_their_real_project(self):
+        twice = [ccledger.parse_entry(entry(), "/root/a.jsonl", "/root"),
+                 ccledger.parse_entry(entry(), "/root/b.jsonl", "/root")]
+        got = list(ccledger.dedupe(twice))
+        self.assertEqual(got[0].ambiguous, frozenset())
+        self.assertEqual(ccledger.group_value(got[0], "project"), "alpha")
+
+    def test_health_reports_the_calls_and_tokens_it_cannot_place(self):
+        records = list(ccledger.dedupe(list(self.copies())))
+        self.assertEqual(ccledger.attribution_health(records, "project"), (1, 180))
+        self.assertEqual(ccledger.attribution_health(records, "day"), (0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

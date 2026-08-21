@@ -18,6 +18,12 @@ Design notes that matter:
   type*, so "which of my agents is eating the budget" is a question with an answer.
 * **Cache tiers are kept apart.** 5-minute and 1-hour cache writes are billed
   differently and are reported as separate columns rather than merged.
+* **Unattributable usage says so.** Resuming or forking a session replays earlier
+  responses into a new transcript, and the replayed copy can carry a different
+  project, session or branch than the original. Where the copies disagree there is
+  no fact of the matter left on disk, so those tokens are reported under
+  ``(ambiguous)`` instead of being silently assigned to whichever copy happened to
+  be read first.
 
 Standard library only. Python 3.9+.
 """
@@ -33,7 +39,7 @@ import os
 import sys
 from collections import defaultdict
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 DEFAULT_ROOT = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 
@@ -44,15 +50,23 @@ GROUP_KEYS = ("project", "model", "day", "branch", "session", "agent", "subagent
 
 MAIN = "main"
 
+# Bucket for usage whose grouping field the transcripts disagree about.
+AMBIGUOUS = "(ambiguous)"
+
 
 class Record:
-    """One billable API response pulled out of a transcript."""
+    """One billable API response pulled out of a transcript.
+
+    ``ambiguous`` names the group keys whose value differed between replayed
+    copies of this same response. It is filled in by :func:`dedupe`, which is the
+    only place that sees all the copies.
+    """
 
     __slots__ = ("project", "model", "day", "branch", "session", "agent",
-                 "subagent", "tokens", "key", "final")
+                 "subagent", "tokens", "key", "final", "ambiguous")
 
     def __init__(self, project, model, day, branch, session, agent, subagent,
-                 tokens, key, final=True):
+                 tokens, key, final=True, ambiguous=frozenset()):
         self.project = project
         self.model = model
         self.day = day
@@ -63,6 +77,7 @@ class Record:
         self.tokens = tokens
         self.key = key
         self.final = final
+        self.ambiguous = ambiguous
 
 
 def _iso_day(timestamp):
@@ -208,6 +223,11 @@ def _better(new, old):
     and again as the finalized record, and the snapshot comes first in the file.
     Prefer whichever one carries the final usage; between two of the same kind,
     prefer the larger output count.
+
+    Note what this deliberately does *not* decide: a verbatim replay ties on both
+    tests, so the survivor is whichever copy was read first, which is an artefact
+    of filename order. That is fine for token counts, which are identical, and not
+    fine for attribution -- see :func:`dedupe`.
     """
     if new.final != old.final:
         return new.final
@@ -220,10 +240,20 @@ def dedupe(records):
     A resumed or forked session replays earlier lines verbatim, so one response
     can appear in several files; and within a file it appears once per streamed
     content block. Insertion order is preserved so the report stays stable.
+
+    The copies are not always identical. A replayed line is rewritten with the
+    resuming session's own ``sessionId``, and a session resumed from a different
+    directory or branch carries those too, so the same response can legitimately
+    be found filed under two projects. Whichever copy wins the tie-break above
+    then decides the attribution, and it wins for no better reason than sorting
+    first. Rather than let that stand as an answer, every group key whose value
+    differs across the copies is recorded on the surviving record so the report
+    can show those tokens as ``(ambiguous)``.
     """
     best = {}
     order = []
     loose = []
+    variants = {}
     for record in records:
         if record.key is None:
             loose.append(record)
@@ -232,12 +262,28 @@ def dedupe(records):
         if current is None:
             best[record.key] = record
             order.append(record.key)
-        elif _better(record, current):
-            best[record.key] = record
+            variants[record.key] = dict((key, {getattr(record, key)})
+                                        for key in GROUP_KEYS)
+        else:
+            seen = variants[record.key]
+            for key in GROUP_KEYS:
+                seen[key].add(getattr(record, key))
+            if _better(record, current):
+                best[record.key] = record
     for key in order:
-        yield best[key]
+        record = best[key]
+        record.ambiguous = frozenset(name for name, values in variants[key].items()
+                                     if len(values) > 1)
+        yield record
     for record in loose:
         yield record
+
+
+def group_value(record, group_by):
+    """The row a record belongs to, or ``(ambiguous)`` if the transcripts disagree."""
+    if group_by in record.ambiguous:
+        return AMBIGUOUS
+    return getattr(record, group_by) or "(none)"
 
 
 def usage_health(records):
@@ -255,6 +301,22 @@ def usage_health(records):
         if not record.final:
             unfinalized += 1
     return total, unfinalized
+
+
+def attribution_health(records, group_by):
+    """Count usage the transcripts cannot place under a single *group_by* value.
+
+    Returned as ``(calls, tokens)``. Grouping by day is always zero: replayed
+    lines keep their original timestamp. Grouping by project, session or branch
+    is not, because those are rewritten to match the session doing the replay.
+    """
+    calls = 0
+    tokens = 0
+    for record in records:
+        if group_by in record.ambiguous:
+            calls += 1
+            tokens += sum(record.tokens.values())
+    return calls, tokens
 
 
 def filter_records(records, since=None, until=None, project=None, agent=None,
@@ -278,7 +340,7 @@ def aggregate(records, group_by):
     totals = defaultdict(lambda: dict.fromkeys(BUCKETS, 0))
     calls = defaultdict(int)
     for record in records:
-        value = getattr(record, group_by) or "(none)"
+        value = group_value(record, group_by)
         bucket = totals[value]
         for name, count in record.tokens.items():
             bucket[name] += count
@@ -376,7 +438,7 @@ def build_report(records, group_by, table=None):
             if amount is None:
                 unpriced.add(record.model)
             else:
-                costs[getattr(record, group_by) or "(none)"] += amount
+                costs[group_value(record, group_by)] += amount
 
     headers = [group_by, "calls"] + list(BUCKETS) + ["total"]
     if costs is not None:
@@ -476,6 +538,16 @@ def main(argv=None):
     if unpriced:
         sys.stderr.write("no price entry for: %s (excluded from usd)\n"
                          % ", ".join(unpriced))
+
+    amb_calls, amb_tokens = attribution_health(records, args.by)
+    if amb_calls:
+        sys.stderr.write(
+            "%s of %s requests (%s tokens) appear in more than one transcript with "
+            "a different %s, so they are reported as %s rather than guessed at. "
+            "Resuming or forking a session replays earlier responses and rewrites "
+            "them with the resuming session's own ids; --by day is never affected.\n"
+            % (_fmt_int(amb_calls), _fmt_int(len(records)), _fmt_int(amb_tokens),
+               args.by, AMBIGUOUS))
 
     sub_calls, unfinalized = usage_health(records)
     if unfinalized:
