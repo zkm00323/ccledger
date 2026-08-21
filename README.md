@@ -26,9 +26,8 @@ larger half of your usage.
 
 ## Which subagent ate the budget
 
-`--by agent` tells you subagents cost you a quarter of everything. That is the
-point at which the next question is obvious and nothing else will answer it:
-**which ones?**
+`--by agent` tells you subagents cost you a quarter of everything. The next
+question is **which ones?**
 
 ```
 $ ccledger --by subagent
@@ -218,13 +217,35 @@ If you want a number you can defend, group by day. If you group by session or
 project, read the `(ambiguous)` row before you draw a conclusion from the rest of
 the table.
 
+## How this compares
+
+Both of the sections above — the floor and the `(ambiguous)` row — are the reason
+to reach for this rather than for something more finished. On everything else,
+something else is probably better, so here is the honest map.
+
+[CodeBurn](https://github.com/getagentseal/codeburn) reads 37 different tools, has
+a TUI, a web dashboard and a menubar app, and `codeburn models --by-agent` already
+breaks spend into per-agent rows. If what you want is a dashboard, use it. Its
+README documents deduplication by API message id but not which copy of a duplicated
+message wins, and nothing in it reports how much of your subagent usage has no
+finalized record on disk. [ccusage](https://github.com/ryoppippi/ccusage) is the
+one most people start with and it keeps cache tiers apart; its README does not
+mention subagents or sidechains.
+
+ccledger is one Python file, standard library only, nothing to install and no Node
+in the path — and it is the only one of the three that prints what it could not
+measure. That is the whole trade. Those observations are from each project's README
+on 2026-08-21 and are worth re-checking rather than trusting; if one of them has
+since added a floor line, that is a good outcome and you should use whichever tool
+you already have.
+
 ## Tests
 
 ```
 python test_ccledger.py
 ```
 
-46 tests, standard library `unittest`, no fixtures to download.
+52 tests, standard library `unittest`, no fixtures to download.
 
 ## Disclosure
 
