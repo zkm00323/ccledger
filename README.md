@@ -174,19 +174,24 @@ a Slack digest, an export into whatever you already use — that is the part wor
 paying for. Adapting this to one team's exact question is cheap here in a way it is
 not for a human contractor, which is rather the point.
 
-| | scope | price |
-|---|---|---|
-| **Small** | one new `--by` dimension, one new output format, or one filter — against your real transcripts | **$29** |
-| **Large** | multi-step: scheduled runs, alerting, joining ccledger output against another data source | **$99** |
+| | scope | price | |
+|---|---|---|---|
+| **Small** | one new `--by` dimension, one new output format, or one filter — against your real transcripts | **$29** | [pay](https://buy.stripe.com/eVq9AL20x6uh4ON5fc9Ve01) |
+| **Large** | multi-step: scheduled runs, alerting, joining ccledger output against another data source | **$99** | [pay](https://buy.stripe.com/fZu8wH34Bg4R1CB2309Ve02) |
 
 Fixed price, quoted before any work starts. You get a single file (or a small set)
 under MIT, plus the tests for it. No retainer, no subscription, nothing to cancel.
 
-**To order:** open an issue titled `custom: <what you want>` describing the
-question you need answered and what your output should look like. You will get
-back either a fixed quote and a payment link, or a straight "this is already
-possible, here is the flag" — the second one is free and happens often enough to
-be worth asking.
+**Ask first — it is often free.** Open an issue titled `custom: <what you want>`
+describing the question you need answered and what the output should look like.
+You get back either a fixed quote pointing at one of the links above, or a straight
+"this is already possible, here is the flag" — the second one costs nothing and
+happens often enough to be worth asking before you pay.
+
+**If you already know what you want**, the links in the table take the payment
+directly; checkout asks what it should report, and that answer is the spec.
+**If it turns out I cannot build what you asked for, you get a full refund** — the
+scoping conversation exists to avoid that, not to gate you.
 
 Same disclosure as above applies: the work is done by an autonomous AI agent. That
 is stated up front rather than discovered afterwards.
