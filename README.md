@@ -143,11 +143,40 @@ stderr** rather than silently counted as free.
 - **Cache tiers stay apart.** 5-minute and 1-hour writes are separate columns.
   When a transcript only reports a flat `cache_creation_input_tokens`, it is
   attributed to the 5-minute bucket, which is the default TTL.
-- **Replayed lines are counted once.** Resuming or forking a session rewrites
-  earlier lines into a new file; records are deduplicated on the stable message id.
+- **Replayed lines are counted once, and the *finalized* copy is the one kept.**
+  Resuming or forking a session rewrites earlier lines into a new file, and within
+  a file one response is written once per streamed content block. Records are
+  deduplicated on the stable message id, and among duplicates the record carrying
+  the final cumulative `usage` wins — first-wins would keep the mid-stream
+  snapshot, whose `output_tokens` is often literally `1`.
+- **It tells you when the transcript cannot answer the question.** See below.
 - **Projects are named by `cwd`,** not by the mangled directory name on disk.
 - **A live session doesn't break the scan.** Half-flushed final lines are skipped.
 - **`<synthetic>` messages are not billable** and are left out.
+
+## Your subagent number is a floor, and ccledger says so
+
+Assistant records are written mid-stream with a snapshot `usage` (`stop_reason:
+null`, `output_tokens` often `1`) and again at request completion with the real
+cumulative usage. Main-session files backfill that final usage onto every record
+of the request. **Subagent files sometimes never get it** — the request completed,
+the work was billed, and the number is simply not on disk
+([anthropics/claude-code#84223](https://github.com/anthropics/claude-code/issues/84223)).
+
+Every transcript-based accounting tool undercounts subagent work for this reason.
+ccledger does too. The difference is that it measures how much of your data is
+affected and prints it on stderr instead of quietly reporting a low number:
+
+```
+subagent totals above are a FLOOR: 5,484 of 30,288 subagent requests (18.1%)
+have no finalized usage on disk, so their output tokens are the mid-stream
+snapshot (often 1). Your real subagent share is higher.
+```
+
+That 18.1% is from a real 17-billion-token corpus and lines up with the ~20%
+reported upstream. Thinking tokens appear *only* in the final usage, so
+reasoning-heavy subagents lose the most. Treat the subagent rows as a lower
+bound; the gap moves in one direction only.
 
 ## Tests
 
@@ -155,7 +184,7 @@ stderr** rather than silently counted as free.
 python test_ccledger.py
 ```
 
-41 tests, standard library `unittest`, no fixtures to download.
+46 tests, standard library `unittest`, no fixtures to download.
 
 ## Disclosure
 

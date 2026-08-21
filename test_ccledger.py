@@ -22,6 +22,7 @@ def entry(**over):
         "message": {
             "id": "msg-1",
             "model": "claude-opus-4-5-20260101",
+            "stop_reason": "end_turn",
             "usage": {
                 "input_tokens": 10,
                 "output_tokens": 20,
@@ -298,6 +299,56 @@ class SubagentAttribution(unittest.TestCase):
 
     def test_subagent_is_an_accepted_by_choice(self):
         self.assertIn("subagent", ccledger.GROUP_KEYS)
+
+
+class UnfinalizedUsage(unittest.TestCase):
+    """anthropics/claude-code#84223: subagent output tokens can be missing."""
+
+    def snapshot(self, **over):
+        """A mid-stream record: stop_reason is None and output is a stub."""
+        e = entry(**over)
+        e["message"] = dict(e["message"], stop_reason=None,
+                            usage=dict(e["message"]["usage"], output_tokens=1))
+        return e
+
+    def test_snapshot_records_are_marked_not_final(self):
+        rec = ccledger.parse_entry(self.snapshot(), "/root/a.jsonl", "/root")
+        self.assertFalse(rec.final)
+
+    def test_finalized_record_wins_dedup_even_when_it_comes_second(self):
+        first = ccledger.parse_entry(self.snapshot(), "/root/a.jsonl", "/root")
+        second = ccledger.parse_entry(entry(), "/root/a.jsonl", "/root")
+        got = list(ccledger.dedupe([first, second]))
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0].tokens["output"], 20)
+
+    def test_two_snapshots_keep_the_larger_output(self):
+        small = ccledger.parse_entry(self.snapshot(), "/root/a.jsonl", "/root")
+        big = ccledger.parse_entry(self.snapshot(), "/root/a.jsonl", "/root")
+        big.tokens["output"] = 65
+        got = list(ccledger.dedupe([small, big]))
+        self.assertEqual(got[0].tokens["output"], 65)
+
+    def test_health_counts_only_unfinalized_subagent_requests(self):
+        recs = [
+            # a subagent request that never got its final usage
+            ccledger.parse_entry(self.snapshot(isSidechain=True,
+                                               attributionAgent="Explore"),
+                                 "/root/a.jsonl", "/root"),
+            # a healthy subagent request
+            ccledger.parse_entry(entry(isSidechain=True,
+                                       attributionAgent="Explore"),
+                                 "/root/a.jsonl", "/root"),
+            # main-loop records never count, finalized or not
+            ccledger.parse_entry(self.snapshot(), "/root/a.jsonl", "/root"),
+        ]
+        self.assertEqual(ccledger.usage_health(recs), (2, 1))
+
+    def test_health_is_zero_when_every_subagent_request_is_final(self):
+        recs = [ccledger.parse_entry(entry(isSidechain=True,
+                                           attributionAgent="Explore"),
+                                     "/root/a.jsonl", "/root")]
+        self.assertEqual(ccledger.usage_health(recs), (1, 0))
 
 
 if __name__ == "__main__":

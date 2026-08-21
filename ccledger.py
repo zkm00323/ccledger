@@ -33,7 +33,7 @@ import os
 import sys
 from collections import defaultdict
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 DEFAULT_ROOT = os.path.join(os.path.expanduser("~"), ".claude", "projects")
 
@@ -49,10 +49,10 @@ class Record:
     """One billable API response pulled out of a transcript."""
 
     __slots__ = ("project", "model", "day", "branch", "session", "agent",
-                 "subagent", "tokens", "key")
+                 "subagent", "tokens", "key", "final")
 
     def __init__(self, project, model, day, branch, session, agent, subagent,
-                 tokens, key):
+                 tokens, key, final=True):
         self.project = project
         self.model = model
         self.day = day
@@ -62,6 +62,7 @@ class Record:
         self.subagent = subagent
         self.tokens = tokens
         self.key = key
+        self.final = final
 
 
 def _iso_day(timestamp):
@@ -164,6 +165,13 @@ def parse_entry(entry, path, root):
         subagent=_subagent_name(entry),
         tokens=tokens,
         key=key,
+        # A record written mid-stream carries stop_reason=None and a snapshot
+        # usage (output_tokens is often 1). The real numbers only land on the
+        # record written at request completion. Main-session files backfill that
+        # final usage onto every record of the request; subagent files sometimes
+        # never do, and then the true output count is simply not in the
+        # transcript. See anthropics/claude-code#84223.
+        final=message.get("stop_reason") is not None,
     )
 
 
@@ -193,14 +201,65 @@ def load_records(root, on_error=None):
                     yield record
 
 
+def _better(new, old):
+    """Which of two records for the same request should survive dedup?
+
+    First-wins is wrong here. The same request shows up as a mid-stream snapshot
+    and again as the finalized record, and the snapshot comes first in the file.
+    Prefer whichever one carries the final usage; between two of the same kind,
+    prefer the larger output count.
+    """
+    if new.final != old.final:
+        return new.final
+    return new.tokens["output"] > old.tokens["output"]
+
+
+def dedupe(records):
+    """Collapse records that describe the same API response, keeping the best one.
+
+    A resumed or forked session replays earlier lines verbatim, so one response
+    can appear in several files; and within a file it appears once per streamed
+    content block. Insertion order is preserved so the report stays stable.
+    """
+    best = {}
+    order = []
+    loose = []
+    for record in records:
+        if record.key is None:
+            loose.append(record)
+            continue
+        current = best.get(record.key)
+        if current is None:
+            best[record.key] = record
+            order.append(record.key)
+        elif _better(record, current):
+            best[record.key] = record
+    for key in order:
+        yield best[key]
+    for record in loose:
+        yield record
+
+
+def usage_health(records):
+    """Count subagent requests whose true output tokens are missing from disk.
+
+    Returned as ``(subagent_calls, unfinalized)``. Anything above zero means the
+    subagent numbers in the report are a floor, not a measurement.
+    """
+    total = 0
+    unfinalized = 0
+    for record in records:
+        if record.agent != "subagent":
+            continue
+        total += 1
+        if not record.final:
+            unfinalized += 1
+    return total, unfinalized
+
+
 def filter_records(records, since=None, until=None, project=None, agent=None,
                    subagent=None):
-    seen = set()
-    for record in records:
-        if record.key is not None:
-            if record.key in seen:
-                continue
-            seen.add(record.key)
+    for record in dedupe(records):
         if since and (not record.day or record.day < since):
             continue
         if until and (not record.day or record.day > until):
@@ -388,9 +447,9 @@ def main(argv=None):
             sys.stderr.write("could not read price table: %s\n" % exc)
             return 2
 
-    records = filter_records(load_records(args.root), since=args.since,
-                             until=args.until, project=args.project, agent=args.agent,
-                             subagent=args.subagent)
+    records = list(filter_records(load_records(args.root), since=args.since,
+                                  until=args.until, project=args.project,
+                                  agent=args.agent, subagent=args.subagent))
     rows, headers, total_row, unpriced = build_report(records, args.by, table)
 
     if not rows:
@@ -417,6 +476,16 @@ def main(argv=None):
     if unpriced:
         sys.stderr.write("no price entry for: %s (excluded from usd)\n"
                          % ", ".join(unpriced))
+
+    sub_calls, unfinalized = usage_health(records)
+    if unfinalized:
+        sys.stderr.write(
+            "subagent totals above are a FLOOR: %s of %s subagent requests (%.1f%%) "
+            "have no finalized usage on disk, so their output tokens are the "
+            "mid-stream snapshot (often 1). Your real subagent share is higher. "
+            "Upstream bug: anthropics/claude-code#84223\n"
+            % (_fmt_int(unfinalized), _fmt_int(sub_calls),
+               100.0 * unfinalized / sub_calls))
     return 0
 
 
