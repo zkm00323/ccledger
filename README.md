@@ -12,9 +12,9 @@ $ ccledger --by agent
 
 agent      calls      input      output  cache_write_5m  cache_write_1h      cache_read           total
 --------  ------  ---------  ----------  --------------  --------------  --------------  --------------
-main      32,191    211,000  29,372,016               0     206,200,727  11,938,485,544  12,174,269,287
-subagent  28,772  1,117,816   5,981,588     131,352,039               0   4,136,041,185   4,274,492,628
-TOTAL     60,963  1,328,816  35,353,604     131,352,039     206,200,727  16,074,526,729  16,448,761,915
+main      33,627    213,885  30,554,411               0     215,432,358  12,371,433,939  12,617,634,593
+subagent  30,288  1,133,112  25,068,860     136,645,254               0   4,345,787,535   4,508,634,761
+TOTAL     63,915  1,346,997  55,623,271     136,645,254     215,432,358  16,717,221,474  17,126,269,354
 ```
 
 That is a real run on the author's machine, and it shows the two things this tool
@@ -35,22 +35,22 @@ $ ccledger --by subagent
 
 subagent                          calls      input      output  cache_write_5m  cache_write_1h      cache_read           total
 -------------------------------  ------  ---------  ----------  --------------  --------------  --------------  --------------
-main                             32,472    211,562  29,637,263               0     206,975,738  12,001,652,449  12,238,477,012
-general-purpose                  13,525    494,361   2,795,839      58,299,818               0   2,314,961,448   2,376,551,466
-zip-lander                       12,124    306,494   2,798,941      51,920,912               0   1,762,309,675   1,817,336,022
-spec-planner                      1,481    124,412     332,446      13,874,348               0      54,037,095      68,368,301
-ui-scan                           1,343     45,457     144,309       4,924,969               0      26,922,687      32,037,422
-workflow-subagent                   357     37,746       4,332       1,470,691               0      26,918,387      28,431,156
-Explore                             311     34,195      59,230       2,072,668               0      24,576,680      26,742,773
-code-simplifier:code-simplifier      19     44,284          64         187,173               0       2,250,218       2,481,739
-cash-scout                          115     25,243         173         241,795               0       1,895,320       2,162,531
-cash-checker                         73     18,171         139         174,076               0       1,071,966       1,264,352
-claude-code-guide                    11        569         743          71,203               0         307,149         379,664
-domain-gatekeeper                    12         24         209         175,063               0         172,905         348,201
-TOTAL                            61,843  1,342,518  35,773,688     133,412,716     206,975,738  16,217,075,979  16,594,580,639
+main                             33,625    213,881  30,551,458               0     215,425,119  12,371,192,490  12,617,382,948
+general-purpose                  14,214    495,739  10,792,309      60,588,181               0   2,432,668,068   2,504,544,297
+zip-lander                       12,281    306,808   9,783,855      52,569,596               0   1,771,852,499   1,834,512,758
+spec-planner                      1,481    124,412   2,904,183      13,874,348               0      54,037,095      70,940,038
+ui-scan                           1,395     45,883     757,765       5,102,909               0      28,384,849      34,291,406
+workflow-subagent                   357     37,746     343,717       1,470,691               0      26,918,387      28,770,541
+Explore                             330     34,233     283,052       2,190,219               0      26,229,079      28,736,583
+code-simplifier:code-simplifier      19     44,284      10,424         187,173               0       2,250,218       2,492,099
+cash-scout                          115     25,243      61,713         241,795               0       1,895,320       2,224,071
+cash-checker                         73     18,171      37,489         174,076               0       1,071,966       1,301,702
+domain-gatekeeper                    12         24      88,937         175,063               0         172,905         436,929
+claude-code-guide                    11        569       5,416          71,203               0         307,149         384,337
+TOTAL                            63,913  1,346,993  55,620,318     136,645,254     215,425,119  16,716,980,025  17,126,017,709
 ```
 
-Two agent types are **97% of all subagent consumption** on this machine. Knowing
+Two agent types are **96% of all subagent consumption** on this machine. Knowing
 that is the difference between "subagents are expensive" and a decision about which
 one to stop calling. `--subagent SUBSTR` narrows to one, and combines with
 `--by day` or `--by project` to ask when and where it ran.
@@ -58,7 +58,7 @@ one to stop calling. `--subagent SUBSTR` narrows to one, and combines with
 Sidechain records carry an `attributionAgent` field naming the agent *type*, so
 rows are per agent type rather than per invocation — two `Explore` calls land in
 the same row. Records written without it fall back to `agent:<agentId>`; on the
-transcripts above that is 13 records out of 60,941.
+transcripts above that fallback never fires, so every row is a named agent type.
 
 ## Install
 
@@ -149,6 +149,11 @@ stderr** rather than silently counted as free.
   deduplicated on the stable message id, and among duplicates the record carrying
   the final cumulative `usage` wins — first-wins would keep the mid-stream
   snapshot, whose `output_tokens` is often literally `1`.
+  This is not a rounding difference. Running the previous release and this one over
+  the same transcripts — same 30,288 subagent requests, byte-identical input — the
+  subagent `output` column moves from **6,391,191 to 25,068,860 tokens**, a factor
+  of 3.9. Output tokens are the expensive ones. Any tool that takes the first copy
+  of a message id is reporting the smaller number.
 - **It tells you when the transcript cannot answer the question.** See below.
 - **Projects are named by `cwd`,** not by the mangled directory name on disk.
 - **A live session doesn't break the scan.** Half-flushed final lines are skipped.
